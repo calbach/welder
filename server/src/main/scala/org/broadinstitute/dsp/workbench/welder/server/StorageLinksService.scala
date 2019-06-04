@@ -15,7 +15,10 @@ class StorageLinksService(storageLinks: Ref[IO, Map[LocalBasePath, StorageLink]]
 
   val service: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root =>
-      Ok(getStorageLinks)
+      for {
+        res <- getStorageLinks
+        resp <- Ok(res)
+      } yield resp
     case req @ DELETE -> Root =>
       for {
         storageLink <- req.as[StorageLink]
@@ -48,6 +51,7 @@ class StorageLinksService(storageLinks: Ref[IO, Map[LocalBasePath, StorageLink]]
   }
 
   def getStorageLinks: IO[StorageLinks] = {
+    println("foo")
     storageLinks.get.map(links => StorageLinks(links.values.toSet))
   }
 }

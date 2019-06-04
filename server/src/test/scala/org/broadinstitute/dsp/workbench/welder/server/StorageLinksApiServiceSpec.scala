@@ -8,7 +8,9 @@ import _root_.io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import cats.effect.IO
 import cats.effect.concurrent.Ref
 import cats.implicits._
+import org.http4s.circe.CirceEntityEncoder._
 import fs2.text
+import io.circe.{Json, parser}
 import org.broadinstitute.dsde.workbench.model.google.GcsBucketName
 import org.broadinstitute.dsp.workbench.welder.LocalBasePath.{LocalBaseDirectoryPath, LocalSafeBaseDirectoryPath}
 import org.http4s.{Method, Request, Status, Uri}
@@ -18,14 +20,14 @@ class StorageLinksApiServiceSpec extends FlatSpec with WelderTestSuite {
   implicit val unsafeLogger: Logger[IO] = Slf4jLogger.getLogger[IO]
   val storageLinks = Ref.unsafe[IO, Map[LocalBasePath, StorageLink]](Map.empty)
   val storageLinksService = StorageLinksService(storageLinks)
-  val cloudStorageDirectory = CloudStorageDirectory(GcsBucketName("foo"), BlobPath("bar/baz.zip"))
+  val cloudStorageDirectory = CloudStorageDirectory(GcsBucketName("foo"), BlobPath("bar"))
   val baseDir = LocalBaseDirectoryPath(Paths.get("/foo"))
   val baseSafeDir = LocalSafeBaseDirectoryPath(Paths.get("/bar"))
 
   "GET /storageLinks" should "return 200 and an empty list of no storage links exist" in {
-    val request = Request[IO](method = Method.GET, uri = Uri.unsafeFromString("/storageLinks"))
+    val request = Request[IO](method = Method.GET, uri = Uri.unsafeFromString("/"))
 
-    val expectedBody = """{"storageLinks": []}""".stripMargin
+    val expectedBody = """{"storageLinks":[]}""".stripMargin
 
     val res = for {
       resp <- storageLinksService.service.run(request).value
@@ -39,37 +41,42 @@ class StorageLinksApiServiceSpec extends FlatSpec with WelderTestSuite {
   }
 
   it should "return 200 and a list of storage links when they exist" in {
-    val request = Request[IO](method = Method.GET, uri = Uri.unsafeFromString("/storageLinks"))
+    val request = Request[IO](method = Method.GET, uri = Uri.unsafeFromString("/"))
 
-    val expectedBody = """{"storageLinks": [{"localBaseDirectory": "/foo", "localSafeBaseDirectory": "/bar"}]}""".stripMargin
+    val expectedBody = """{"storageLinks":[{"localBaseDirectory":"/foo","localSafeModeBaseDirectory":"/bar","cloudStorageDirectory":"gs://foo/bar","pattern":".zip"}]}"""
 
-    val linkToAddAndRemove = StorageLink(baseDir, baseSafeDir, cloudStorageDirectory, ".zip")
+    val linkToAdd = StorageLink(baseDir, baseSafeDir, cloudStorageDirectory, ".zip")
 
-    storageLinksService.createStorageLink(linkToAddAndRemove).unsafeRunSync()
+    storageLinksService.createStorageLink(linkToAdd).unsafeRunSync()
 
     val intermediateListResult = storageLinksService.getStorageLinks.unsafeRunSync()
-    assert(intermediateListResult.storageLinks equals Set(linkToAddAndRemove))
+    assert(intermediateListResult.storageLinks equals Set(linkToAdd))
 
     val res = for {
       resp <- storageLinksService.service.run(request).value
       body <- resp.get.body.through(text.utf8Decode).compile.foldMonoid
     } yield {
       resp.get.status shouldBe Status.Ok
-      true shouldBe false
+      body shouldBe expectedBody
     }
 
     res.unsafeRunSync()
   }
 
   "POST /storageLinks" should "return 200 and the storage link created when called with a valid storage link" in {
-    val request = Request[IO](method = Method.POST, uri = Uri.unsafeFromString("/storageLinks"))
+    val requestBody = """{"localBaseDirectory":"/foo","localSafeModeBaseDirectory":"/bar","cloudStorageDirectory":"gs://foo/bar","pattern":".zip"}"""
 
+    val requestBodyJson = parser.parse(requestBody).getOrElse(throw new Exception(s"invalid request body $requestBody"))
+    val request = Request[IO](method = Method.POST, uri = Uri.unsafeFromString("/")).withEntity[Json](requestBodyJson)
 
+    val res = for {
+      resp <- storageLinksService.service.run(request).value
+      body <- resp.get.body.through(text.utf8Decode).compile.foldMonoid
+    } yield {
+      resp.get.status shouldBe Status.Ok
+      body shouldBe requestBody
+    }
+
+    res.unsafeRunSync()
   }
-
-  it should "return 400 when an invalid storage link is supplied" in {
-
-  }
-
-
 }
