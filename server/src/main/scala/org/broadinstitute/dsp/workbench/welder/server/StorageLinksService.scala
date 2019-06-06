@@ -51,7 +51,6 @@ class StorageLinksService(storageLinks: Ref[IO, Map[LocalBasePath, StorageLink]]
   }
 
   def getStorageLinks: IO[StorageLinks] = {
-    println("foo")
     storageLinks.get.map(links => StorageLinks(links.values.toSet))
   }
 }
